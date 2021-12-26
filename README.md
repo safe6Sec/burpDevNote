@@ -1,5 +1,5 @@
 # burpDevNote
-burp插件开发笔记
+burp插件开发笔记，简单记一下方便查阅。刚入门最好的建议就是模仿，多看别人写的，尝试着修改，尝试着自己写一个。
 
 
 
@@ -504,20 +504,178 @@ public class BurpExtender implements IBurpExtender, IContextMenuFactory
 }
 ```
 
+### IMessageEditorTab
+
+用途：有点像repeater模块，主要就是用来展示和编辑request和response。
 
 
 
 
 
+```java
+//添加一个editor，用于显示HTTP数据包
+		IMessageEditor editor = BurpExtender.getCallbacks().createMessageEditor(this, false);
+		contentPane.add(editor.getComponent(), BorderLayout.CENTER);
+		
+			JButton btnNewButton = new JButton("displayRequest");
+		btnNewButton.addActionListener(new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				editor.setMessage(getRequest(), true);//调用IMessageEditorController的函数来显示请求包
+			}
+		});
+```
+
+
+
+```java
+ public Tags(final IBurpExtenderCallbacks callbacks, String name) {
+        this.callbacks = callbacks;
+        this.tagName = name;
+
+        SwingUtilities.invokeLater(new Runnable() {
+
+
+            @Override
+            public void run() {
+
+
+                jPanel = new JPanel();
+
+               splitPanel = new JSplitPane(0);
+                splitPanel.setDividerLocation(0.5D);
+                jTabbedPane = new JTabbedPane();
+                jTabbedPane1 = new JTabbedPane();
+                request  = callbacks.createMessageEditor(Tags.this, false);
+                response = callbacks.createMessageEditor(Tags.this,false);
+                jTabbedPane.addTab("Request",request.getComponent());
+                jTabbedPane.addTab("Response",response.getComponent());
+                splitPanel.add(jTabbedPane);
+                splitPanel.setTopComponent(jTabbedPane1);
+                splitPanel.setBottomComponent(jTabbedPane);
+                jPanel.add(splitPanel);
+
+//                // 设置自定义组件并添加标签
+                callbacks.customizeUiComponent(jPanel);//根据Burp的UI样式自定义UI组件，包括字体大小、颜色、表格行距等。
+                callbacks.addSuiteTab(Tags.this);
+
+            }
+        });
+    }
+```
+
+
+
+### IBurpCollaboratorClientContext
+
+如何与burp自生DNSlog进行交互
+
+```java
+IBurpCollaboratorClientContext ccc = callbacks.createBurpCollaboratorClientContext();
+
+//返回结果类似：053bsqoev8gezev8oq59zylgv71xpm, 053bsqoev8gezev8oq59zylgv71xpm.burpcollaborator.net
+public static String[] getFullDnsDomain(){
+    String subdomain = ccc.generatePayload(false);
+    String interactionID = subdomain;
+    String server = ccc.getCollaboratorServerLocation();
+    String fullPayload = subdomain+"."+server;
+    String[] result = {interactionID,fullPayload};
+    return result;
+}
+```
 
 
 
 
+
+## 插件解析
+
+解析P喵呜大佬写的，shiro被动扫描插件。
+
+前提：了解shiro反序列化漏洞原理，了解burp插件开发。
+
+
+
+https://github.com/pmiaowu/BurpShiroPassiveScan.git
+
+
+
+找到入口类开始看，发现继承了IScannerCheck。
+
+IScannerCheck和IHttpListener有点相似，简单说下我理解的区别，如有不对欢迎指出。
+
+IHttpListener有点像proxy抓包拦截，能在收到某某request或者response就马上进行处理。而IScannerCheck则是发现你请求了某某url之后，单独对这个url进行漏洞扫描。
+
+![image-20211226144135012](https://gitee.com/safe6/img/raw/master/image-20211226144135012.png)
+
+
+
+先看关键注册方法，主要是一些初始化操作
+
+![image-20211226144243446](https://gitee.com/safe6/img/raw/master/image-20211226144243446.png)
+
+
+
+初始化关键对象
+
+![image-20211226144619862](https://gitee.com/safe6/img/raw/master/image-20211226144619862.png)
+
+初始化两个用于存放扫描url和domain的对象
+
+![image-20211226144729787](https://gitee.com/safe6/img/raw/master/image-20211226144729787.png)
+
+这两个对象主要是用了单例各种维护一个了map
+
+![](https://gitee.com/safe6/img/raw/master/image-20211226145014584.png)
+
+
+
+初始化插件界面，设置插件名称，注册扫描，打印一些作者信息。
+
+![image-20211226145255622](https://gitee.com/safe6/img/raw/master/image-20211226145255622.png)
+
+
+
+看看插件界面代码，就是表格加req和res
+
+![](https://gitee.com/safe6/img/raw/master/image-20211226151549825.png)
+
+
+
+接下来看，被动扫描。核心代码都在这。
+
+![image-20211226152831719](https://gitee.com/safe6/img/raw/master/image-20211226152831719.png)
+
+先判断域名有没有被扫描过
+
+![image-20211226153017814](https://gitee.com/safe6/img/raw/master/image-20211226153017814.png)
+
+再检测url有没有被扫描过（此处有重复代码的感觉，离谱）
+
+![image-20211226153117727](https://gitee.com/safe6/img/raw/master/image-20211226153117727.png)
+
+
+
+都没有扫描过，则加到前面初始化的map里面去。(大佬居然管这个叫数组，有点离谱，问题不大)
+
+![image-20211226153559483](https://gitee.com/safe6/img/raw/master/image-20211226153559483.png)
+
+
+
+开始核心的各种检测
+
+![image-20211226155021186](https://gitee.com/safe6/img/raw/master/image-20211226155021186.png)
+
+
+
+后面就是一些添加issues，爆破key什么的，不想看了。
+
+突然发现写这种东西，对我完全没任何好处。而且还及其浪费时间，疯狂截图，各种写。
 
 
 
 ## 致谢
 
-感谢大佬开源，让我学习。向大佬致敬。
+感谢大佬开源，向大佬致敬。
 
 - https://github.com/bit4woo/burp-api-drops
+- https://xz.aliyun.com/t/7065
